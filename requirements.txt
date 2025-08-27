@@ -1,0 +1,4 @@
+mutagen
+tensorflow
+essentia
+essentia-tensorflow
