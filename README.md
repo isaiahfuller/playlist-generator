@@ -7,9 +7,9 @@ Installation:
     pip install -r requirements.txt
 
 Usage:
-`-b or --base {dir}` - folder with songs (supports mp3, flac, and ogg files)
-`-t or --tags` - saves song's tags to the db (currently unused)
-`-s or --sonic` - runs the tensorflow scanner for genre/mood classifiers
-`-pl or --playlist` {song path} - generates playlist based on the given song
+`-b or --base {dir}` - folder with songs (supports mp3, flac, and ogg files)  
+`-t or --tags` - saves song's tags to the db (currently unused)  
+`-s or --sonic` - runs the tensorflow scanner for genre/mood classifiers  
+`-pl or --playlist` {song path} - generates playlist based on the given song  
 
 Note: The sonic scanner can take a ***VERY*** long time. On my library of ~50000 songs, it took multiple days to finish.
