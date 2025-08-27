@@ -71,7 +71,7 @@ def sonic_scan():
     for path in paths:
         if path not in existing:
             batch.append(path)
-            if len(batch) >= 20:
+            if len(batch) >= 1:
                 sq.put(batch)
                 batch.clear()
         else:
@@ -91,12 +91,13 @@ def make_playlist(path, percent):
     if 'title' in track_tags:
         title = track_tags['title'][0]
     seen = set()
-    seen_multiple = [path]
+    seen_multiple = set([path])
+    paths = [path]
     for name,value in top:
         vals = db.get_tracks_by_classification(name,value,percent)
         for val in vals:
             if val in seen:
-                seen_multiple.append(val)
+                seen_multiple.add(val)
             else:
                 seen.add(val)
     for name in moods:
@@ -104,7 +105,9 @@ def make_playlist(path, percent):
         for val in vals:
             if val in seen_multiple:
                 seen_multiple.remove(val)
-    create_m3u_playlist(f"Tracks Like {artist} - {title}", seen_multiple)
+    seen_multiple.remove(path)
+    paths += list(seen_multiple)
+    create_m3u_playlist(f"Tracks Like {artist} - {title}", paths)
 
 def create_m3u_playlist(name, paths):
     with open(f"{name}.m3u", 'w', encoding='utf-8') as f:
@@ -135,11 +138,10 @@ for i, arg in enumerate(sys.argv):
                 break
             val = sys.argv[i+1]
             base_dir_name = val
-        case "-s" | "--scan":
             run_base = True
         case "-t" | "--tags":
             run_tags = True
-        case "-S" | "--sonic":
+        case "-s" | "--sonic":
             run_sonic = True
         case "-pl" | "--playlist":
             if i+1 > len(sys.argv):

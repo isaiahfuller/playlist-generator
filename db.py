@@ -190,7 +190,6 @@ class Database:
         res = {}
         for name,val in vals:
             res[name] = val > 0.5
-        print(res)
         return res
 
     def get_tracks_by_classification(self, name, value, percent):

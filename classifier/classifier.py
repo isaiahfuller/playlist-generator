@@ -1,5 +1,10 @@
 import numpy as np
 import json
+from essentia.standard import (
+    MonoLoader,  # pyright: ignore[reportAttributeAccessIssue]
+    TensorflowPredictEffnetDiscogs,  # pyright: ignore[reportAttributeAccessIssue]
+    TensorflowPredict2D,  # pyright: ignore[reportAttributeAccessIssue]
+)
 import tensorflow as tf
 from classifier.tf_wrapper import GPUModelWrapper, get_global_session
 
@@ -9,11 +14,6 @@ if gpus:
     print(f"[Classifier] Found {len(gpus)} GPU(s)")
     for gpu in gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
-from essentia.standard import (
-    MonoLoader,  # pyright: ignore[reportAttributeAccessIssue]
-    TensorflowPredictEffnetDiscogs,  # pyright: ignore[reportAttributeAccessIssue]
-    TensorflowPredict2D,  # pyright: ignore[reportAttributeAccessIssue]
-)
 
 
 class Classifier:
