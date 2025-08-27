@@ -6,7 +6,7 @@ Installation:
     source .venv/bin/activate
     pip install -r requirements.txt
 
-Usage:
+Usage:  
 `-b or --base {dir}` - folder with songs (supports mp3, flac, and ogg files)  
 `-t or --tags` - saves song's tags to the db (currently unused)  
 `-s or --sonic` - runs the tensorflow scanner for genre/mood classifiers  
