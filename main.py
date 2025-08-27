@@ -91,12 +91,12 @@ def make_playlist(path, percent):
     if 'title' in track_tags:
         title = track_tags['title'][0]
     seen = set()
-    seen_multiple = set()
+    seen_multiple = [path]
     for name,value in top:
         vals = db.get_tracks_by_classification(name,value,percent)
         for val in vals:
             if val in seen:
-                seen_multiple.add(val)
+                seen_multiple.append(val)
             else:
                 seen.add(val)
     for name in moods:
@@ -155,14 +155,6 @@ for i, arg in enumerate(sys.argv):
         tag_scan()
     if run_sonic:
         sonic_scan()
-
-
-
-
-# tag_scan(base_dir_name)
-# sonic_scan()
-
-# make_playlist("/mnt/media/Music/070 Shake/Black Dress/01 - Black Dress.flac", 0.07)
 
 dbq.join()
 sq.join()
