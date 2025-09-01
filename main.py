@@ -94,7 +94,7 @@ def make_playlist(path, percent):
     seen_multiple = set([path])
     paths = [path]
     for name,value in top:
-        vals = db.get_tracks_by_classification(name,value,percent)
+        vals = db.get_tracks_by_classification(name,value,0.1)
         for val in vals:
             if val in seen:
                 seen_multiple.add(val)
