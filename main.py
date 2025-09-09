@@ -52,8 +52,10 @@ def tag_scan():
     """Scan known paths, add tags to db"""
     db = Database()
     files = set(db.get_paths('tracks','path'))
+    existing = set(db.get_paths('track_tags','track_path'))
     for file in files:
-        q.put(file)
+        if file not in existing:
+            q.put(file)
 
 def sonic_thread(sq, classifier):
     while True:
