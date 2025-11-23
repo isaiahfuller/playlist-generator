@@ -5,8 +5,6 @@ from essentia.standard import (
     TensorflowPredictEffnetDiscogs,  # pyright: ignore[reportAttributeAccessIssue]
     TensorflowPredict2D,  # pyright: ignore[reportAttributeAccessIssue]
 )
-import tensorflow as tf
-from classifier.tf_wrapper import GPUModelWrapper, get_global_session
 import shutil
 import tempfile
 import os
@@ -15,80 +13,42 @@ import threading
 # Global lock for directory changes
 dir_lock = threading.Lock()
 
-# Configure TensorFlow
-gpus = tf.config.list_physical_devices("GPU")
-if gpus:
-    print(f"[Classifier] Found {len(gpus)} GPU(s)")
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
-
-
 class Classifier:
     # Our models take audio streams at 16kHz
     sr = 16000
     rq = 4
 
     def __init__(self):
-        """Initialize classifier with optimized GPU model loading"""
-        # Initialize the shared global session
-        if gpus:
-            print("[Classifier] Initializing GPU session")
-            _ = get_global_session()
-
+        """Initialize classifier with Essentia models"""
         print("[Classifier] Loading primary embedding models with Essentia")
         self.discogs_model = TensorflowPredictEffnetDiscogs(
             graphFilename="./classifier/models/discogs-effnet-bs64-1.pb",
             output="PartitionedCall:1",
         )
 
-        # For the secondary models that process embeddings, use GPU if available
-        if gpus:
-            print("[Classifier] Using GPU for embedding processing models")
-
-            # Use our GPU wrapper for these models
-            self.genre_model = GPUModelWrapper(
-                "./classifier/models/genre_discogs400-discogs-effnet-1.pb",
-                input_name="serving_default_model_Placeholder:0",
-                output_name="PartitionedCall:0",
-            )
-            self.party_model = GPUModelWrapper(
-                "./classifier/models/mood_party-discogs-effnet-1.pb",
-                output_name="model/Softmax:0",
-            )
-            self.relaxed_model = GPUModelWrapper(
-                "./classifier/models/mood_relaxed-discogs-effnet-1.pb",
-                output_name="model/Softmax:0",
-            )
-            self.dance_model = GPUModelWrapper(
-                "./classifier/models/danceability-discogs-effnet-1.pb",
-                output_name="model/Softmax:0",
-            )
-            self.moodtheme_model = GPUModelWrapper(
-                "./classifier/models/mtg_jamendo_moodtheme-discogs-effnet-1.pb"
-            )
-        else:
-            print("[Classifier] No GPU found, using CPU for all models")
-            # Use Essentia for all models when no GPU is available
-            self.genre_model = TensorflowPredict2D(
-                graphFilename="./classifier/models/genre_discogs400-discogs-effnet-1.pb",
-                input="serving_default_model_Placeholder",
-                output="PartitionedCall:0",
-            )
-            self.party_model = TensorflowPredict2D(
-                graphFilename="./classifier/models/mood_party-discogs-effnet-1.pb",
-                output="model/Softmax",
-            )
-            self.relaxed_model = TensorflowPredict2D(
-                graphFilename="./classifier/models/mood_relaxed-discogs-effnet-1.pb",
-                output="model/Softmax",
-            )
-            self.dance_model = TensorflowPredict2D(
-                graphFilename="./classifier/models/danceability-discogs-effnet-1.pb",
-                output="model/Softmax",
-            )
-            self.moodtheme_model = TensorflowPredict2D(
-                graphFilename="./classifier/models/mtg_jamendo_moodtheme-discogs-effnet-1.pb"
-            )
+        print("[Classifier] Loading downstream models with Essentia")
+        
+        # Use Essentia for all models
+        self.genre_model = TensorflowPredict2D(
+            graphFilename="./classifier/models/genre_discogs400-discogs-effnet-1.pb",
+            input="serving_default_model_Placeholder",
+            output="PartitionedCall:0",
+        )
+        self.party_model = TensorflowPredict2D(
+            graphFilename="./classifier/models/mood_party-discogs-effnet-1.pb",
+            output="model/Softmax",
+        )
+        self.relaxed_model = TensorflowPredict2D(
+            graphFilename="./classifier/models/mood_relaxed-discogs-effnet-1.pb",
+            output="model/Softmax",
+        )
+        self.dance_model = TensorflowPredict2D(
+            graphFilename="./classifier/models/danceability-discogs-effnet-1.pb",
+            output="model/Softmax",
+        )
+        self.moodtheme_model = TensorflowPredict2D(
+            graphFilename="./classifier/models/mtg_jamendo_moodtheme-discogs-effnet-1.pb"
+        )
 
         # Cache the model labels
         self.labels_cache = {}
@@ -117,14 +77,14 @@ class Classifier:
         return self.labels_cache[model_name]
 
     def process_tracks(self, files: list[str]):
-        """Process multiple audio files with optimized batch processing"""
+        """Process multiple audio files"""
         results = {}
 
         if not files:
             return results
 
-        # Use larger batch size for better GPU utilization
-        batch_size = 20  # Increased from 5
+        # Use larger batch size for better utilization
+        batch_size = 20
         print(
             f"[Classifier] Processing {len(files)} files with batch size {batch_size}"
         )
@@ -189,14 +149,12 @@ class Classifier:
         # Phase 2: Generate embeddings for all files
         print(f"[Classifier] Generating embeddings for {len(audio_data)} files")
         discogs_embeddings = {}
-        # musicnn_embeddings = {}
 
         for file, audio in audio_data.items():
             try:
                 print(f"[Classifier] Generating embeddings for {file}")
                 # Extract embeddings using Essentia models
                 discogs_embeddings[file] = self.discogs_model(audio)
-                # musicnn_embeddings[file] = self.musicnn_model(audio)
             except Exception as e:
                 print(f"[Classifier] Error generating embeddings for {file}: {str(e)}")
 
@@ -206,89 +164,13 @@ class Classifier:
         if not discogs_embeddings:
             return results
 
-        # Phase 3: Batch process embeddings through each model
-        if gpus:
-            # Process with GPU batching
-            self._process_with_gpu_batching(discogs_embeddings, results)
-        else:
-            # Process sequentially with CPU
-            self._process_with_cpu(discogs_embeddings, results)
+        # Phase 3: Process embeddings
+        self._process_embeddings(discogs_embeddings, results)
 
         return results
 
-    def _process_with_gpu_batching(self, discogs_embeddings, results):
-        """Process all embeddings in batches with GPU acceleration"""
-        # Prepare lists of files and embeddings
-        files = list(discogs_embeddings.keys())
-        embeddings_list = [discogs_embeddings[file] for file in files]
-
-        # Process genre predictions in a batch
-        print(f"[Classifier] Batch processing {len(files)} files for genre")
-        genre_predictions = self.genre_model.batch_predict(embeddings_list)
-
-        # Process mood/party predictions in a batch
-        print(f"[Classifier] Batch processing {len(files)} files for party mood")
-        party_predictions = self.party_model.batch_predict(embeddings_list)
-
-        # Process relaxed predictions in a batch
-        print(f"[Classifier] Batch processing {len(files)} files for relaxed mood")
-        relaxed_predictions = self.relaxed_model.batch_predict(embeddings_list)
-
-        # Process danceability predictions in a batch
-        print(f"[Classifier] Batch processing {len(files)} files for danceability")
-        dance_predictions = self.dance_model.batch_predict(embeddings_list)
-
-        # Process mood/theme predictions in a batch
-        print(f"[Classifier] Batch processing {len(files)} files for mood/theme")
-        moodtheme_predictions = self.moodtheme_model.batch_predict(embeddings_list)
-
-        # Process results for each file
-        for i, file in enumerate(files):
-            try:
-                data = {}
-
-                # Post-process each prediction type
-                if i < len(genre_predictions):
-                    data["genre"] = self._post_process_prediction(
-                        genre_predictions[i],
-                        "./classifier/models/genre_discogs400-discogs-effnet-1",
-                        threshold=0,
-                    )
-
-                if i < len(party_predictions):
-                    data["party"] = self._post_process_prediction(
-                        party_predictions[i], "./classifier/models/mood_party-discogs-effnet-1"
-                    )
-
-                if i < len(relaxed_predictions):
-                    data["relaxed"] = self._post_process_prediction(
-                        relaxed_predictions[i],
-                        "./classifier/models/mood_relaxed-discogs-effnet-1",
-                    )
-
-                if i < len(dance_predictions):
-                    data["danceability"] = self._post_process_prediction(
-                        dance_predictions[i],
-                        "./classifier/models/danceability-discogs-effnet-1",
-                    )
-
-                if i < len(moodtheme_predictions):
-                    data["moodtheme"] = self._post_process_prediction(
-                        moodtheme_predictions[i],
-                        "./classifier/models/mtg_jamendo_moodtheme-discogs-effnet-1",
-                    )
-
-                if not data:
-                    print(f"[Classifier] Warning: No data generated for {file}")
-                else:
-                    print(f"[Classifier] Generated {len(data)} classification types for {file}")
-                    
-                results[file] = data
-            except Exception as e:
-                print(f"[Classifier] Error processing results for {file}: {str(e)}")
-
-    def _process_with_cpu(self, discogs_embeddings, results):
-        """Process embeddings sequentially with CPU"""
+    def _process_embeddings(self, discogs_embeddings, results):
+        """Process embeddings sequentially"""
         for file, embedding in discogs_embeddings.items():
             try:
                 data = {}
@@ -419,3 +301,4 @@ class Classifier:
                 break
             res[labels[l]] = mean[l]
         return res
+
