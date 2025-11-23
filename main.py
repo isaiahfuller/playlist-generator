@@ -19,21 +19,26 @@ def tag_thread(q):
         q.task_done()
 
 def db_thread(q):
-    db = Database()
     while True:
-        type, path, data = q.get()
-        match type:
-            case "path":
+        task = q.get()
+        try:
+            db = Database()
+            if task[0] == "tag":
+                _type, path, track_data = task
+                db.add_track(path, track_data) # Assuming add_track is the correct method based on original code
+            elif task[0] == "path":
+                _type, path, _data = task
                 db.add_path(path)
-                q.task_done()
-            case "sonic":
+            elif task[0] == "sonic":
+                _type, _path, data = task # The path is an empty string here, data contains the dict
+                print(f"[Main] Adding {len(data)} tracks to db", flush=True)
                 for filepath in data:
-                    for type in data[filepath]:
-                        db.add_classification(filepath, data[filepath][type])
-                q.task_done()
-            case "tag":
-                db.add_track(path,data)
-                q.task_done()
+                    for classification_type in data[filepath]:
+                        db.add_classification(filepath, data[filepath][classification_type])
+            db.close()
+        except Exception as e:
+            print(f"[Database] Thread error: {e}", flush=True)
+        q.task_done()
 
 def path_scan(dir):
     db = Database()
@@ -69,15 +74,18 @@ def sonic_scan():
     db = Database()
     paths = db.get_paths('tracks','path')
     existing = set(db.get_paths("track_classifications","track_path"))
+    db.close()
+    
     batch = []
     for path in paths:
         if path not in existing:
             batch.append(path)
             if len(batch) >= 1:
                 sq.put(batch)
-                batch.clear()
-        else:
-            print(f"[Main] Path exists in db: {path}")
+                batch = []
+        # else:
+        #     print(f"[Main] Path exists in db: {path}")
+    print("[Main] sonic_scan finished. Waiting for threads...", flush=True)
 
 
 def make_playlist(path, percent):
@@ -160,6 +168,6 @@ for i, arg in enumerate(sys.argv):
     if run_sonic:
         sonic_scan()
 
-dbq.join()
-sq.join()
 q.join()
+sq.join()
+dbq.join()

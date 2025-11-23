@@ -208,6 +208,8 @@ pip-selfcheck.json
 
 *.venv
 *.db
+*.db-shm
+*.db-wal
 *.db-journal
 *.bk
 *.sqbpro

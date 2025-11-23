@@ -7,6 +7,13 @@ from essentia.standard import (
 )
 import tensorflow as tf
 from classifier.tf_wrapper import GPUModelWrapper, get_global_session
+import shutil
+import tempfile
+import os
+import threading
+
+# Global lock for directory changes
+dir_lock = threading.Lock()
 
 # Configure TensorFlow
 gpus = tf.config.list_physical_devices("GPU")
@@ -138,7 +145,43 @@ class Classifier:
                     )
                     audio_data[file] = loader()
                 except Exception as e:
-                    print(f"[Classifier] Error loading {file}: {str(e)}")
+                    if "File name too long" in str(e):
+                        print(f"[Classifier] File name too long, using temp file for {file}")
+                        try:
+                            # Create temp file with same extension
+                            ext = os.path.splitext(file)[1]
+                            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                                tmp_path = tmp.name
+                                print(f"[Classifier] Using temp file {tmp_path}")
+                            
+                            # Use lock to safely change directory and copy using bytes
+                            with dir_lock:
+                                cwd = os.getcwd()
+                                try:
+                                    dirname = os.path.dirname(file)
+                                    basename = os.path.basename(file)
+                                    os.chdir(dirname)
+                                    # Use os.fsencode on basename to handle bytes and avoid length limit
+                                    shutil.copy2(os.fsencode(basename), tmp_path)
+                                    print(f"[Classifier] Copied {basename} to {tmp_path}")
+                                finally:
+                                    os.chdir(cwd)
+                            
+                            # Load from temp path
+                            loader = MonoLoader(
+                                filename=tmp_path, sampleRate=self.sr, resampleQuality=self.rq
+                            )
+                            audio_data[file] = loader()
+                            print(f"[Classifier] Loaded audio for {file}")
+                            
+                            # Clean up
+                            os.remove(tmp_path)
+                        except Exception as inner_e:
+                            print(f"[Classifier] Error processing temp file for {file}: {str(inner_e)}")
+                            if os.path.exists(tmp_path):
+                                os.remove(tmp_path)
+                    else:
+                        print(f"[Classifier] Error loading {file}: {str(e)}")
 
         if not audio_data:
             return results
@@ -235,6 +278,11 @@ class Classifier:
                         "./classifier/models/mtg_jamendo_moodtheme-discogs-effnet-1",
                     )
 
+                if not data:
+                    print(f"[Classifier] Warning: No data generated for {file}")
+                else:
+                    print(f"[Classifier] Generated {len(data)} classification types for {file}")
+                    
                 results[file] = data
             except Exception as e:
                 print(f"[Classifier] Error processing results for {file}: {str(e)}")
@@ -271,6 +319,11 @@ class Classifier:
                     "./classifier/models/mtg_jamendo_moodtheme-discogs-effnet-1",
                     embedding,
                 )
+                
+                if not data:
+                    print(f"[Classifier] Warning: No data generated for {file}")
+                else:
+                    print(f"[Classifier] Generated {len(data)} classification types for {file}")
 
                 results[file] = data
             except Exception as e:

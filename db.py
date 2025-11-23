@@ -10,10 +10,42 @@ from tagging import Track
 class Database:
     def __init__(self):
         self._classes = {}
-        self.__con = sqlite3.connect("test.db")
+        self.__con = sqlite3.connect("test.db", timeout=10.0, isolation_level=None)
+        self.__con.execute("PRAGMA journal_mode=WAL")
         self.create_tables()
         self.create_indexes()
         self.get_classifier_classes()
+
+    # ... (skipping methods) ...
+
+    def add_classification(self,path,data):
+        print(f"[Database] Adding {path} ...", flush=True)
+        
+        # Ensure track exists in tracks table
+        try:
+            self.__con.execute("INSERT OR IGNORE INTO tracks (path) VALUES (?)", (path,))
+        except Exception as e:
+            print(f"[Database] Failed to insert track path: {e}", flush=True)
+
+        cur = self.__con.cursor()
+        success_count = 0
+        error_count = 0
+        for key in data:
+            try:
+                cur.execute('INSERT OR REPLACE INTO track_classifications VALUES (?,?,?)', (key, path, data[key]))
+                success_count += 1
+            except Exception as e:
+                error_count += 1
+                print(f"[Database] Error inserting classification {key} for {path}: {e}", flush=True)
+        
+        try:
+            # self.__con.commit()
+            pass
+        except Exception as e:
+            print(f"[Database] COMMIT FAILED: {e}", flush=True)
+
+    def close(self):
+        self.__con.close()
 
     def create_tables(self):
         # Check if the table already exists
@@ -43,7 +75,7 @@ class Database:
             print("[Database] Table 'track_tags' already exists")
         else:
             cur.execute('CREATE TABLE "track_tags" ("track_path" TEXT NOT NULL,"tag_id" INTEGER NOT NULL,"value" TEXT,FOREIGN KEY("tag_id") REFERENCES "tags"("id"),FOREIGN KEY("track_path") REFERENCES "tracks"("path"))')
-        self.__con.commit()
+        # self.__con.commit()
 
     def create_indexes(self):
         cur = self.__con.cursor()
@@ -72,7 +104,7 @@ class Database:
             print("[Database] Index 'tag_path_value' on 'track_tags' already exists")
         else:
             cur.execute('CREATE INDEX "tag_path_value" ON "track_tags" ("value", "track_path")')
-        self.__con.commit()
+        # self.__con.commit()
 
     def add_tracks(self, paths):
         if paths is None:
@@ -84,13 +116,13 @@ class Database:
 
         cur = self.__con.cursor()
         for path in paths:
-            checkPath = cur.execute("SELECT path FROM tracks WHERE path='{}'".format(path))
+            checkPath = cur.execute("SELECT path FROM tracks WHERE path=?", (path,))
             if checkPath.fetchone():
                 print(f"[Database] File at {path} already present.")
             else:
-                cur.execute('INSERT INTO track (path) VALUES ("{}")'.format(path))
+                cur.execute('INSERT INTO track (path) VALUES (?)', (path,))
                 print(f'[Database] Added track "{path}" to db')
-        self.__con.commit()
+        # self.__con.commit()
 
     def get_classifier_classes(self):
         classifications = []
@@ -109,12 +141,13 @@ class Database:
         cur = self.__con.cursor()
         for value in values:
             try:
-                cur.execute(f'INSERT OR IGNORE INTO {table_name} (name) VALUES ("{value.replace("'", "\\\'").replace('"', "\\\"")}")')
+                cur.execute(f'INSERT OR IGNORE INTO {table_name} (name) VALUES (?)', (value,))
             except:
                 print(f'[Database] Error on "{value}"')
-        self.__con.commit()
+        # self.__con.commit()
         cur.execute(f"SELECT * FROM {table_name}")
         res = cur.fetchall()
+        # self.__con.commit() # Release read lock
         return res
 
     def get_tags(self, tag_names):
@@ -127,8 +160,8 @@ class Database:
 
     def add_path(self,path):
         cur = self.__con.cursor()
-        cur.execute(f'INSERT OR IGNORE INTO tracks (path) VALUES ("{path}")')
-        self.__con.commit()
+        cur.execute('INSERT OR IGNORE INTO tracks (path) VALUES (?)', (path,))
+        # self.__con.commit()
         print(f"[Database] Added {path}")
         return
 
@@ -138,16 +171,16 @@ class Database:
         if track_tags == None:
             return None
         self.get_tags(list(track_tags.keys()))
-        cur.execute(f'INSERT OR IGNORE INTO tracks (path) VALUES ("{path}")')
-        cur.execute(f'DELETE FROM track_tags WHERE track_path="{path}"')
+        cur.execute('INSERT OR IGNORE INTO tracks (path) VALUES (?)', (path,))
+        cur.execute('DELETE FROM track_tags WHERE track_path=?', (path,))
         for tag_name in track_tags:
             for value in track_tags[tag_name]:
                 encoded = value.encode("utf-8")
                 try:
-                    cur.execute(f'INSERT OR IGNORE INTO track_tags VALUES ("{path}","{tag_name}","{base64.b64encode(encoded)}")')
+                    cur.execute('INSERT OR IGNORE INTO track_tags VALUES (?,?,?)', (path, tag_name, base64.b64encode(encoded)))
                 except:
                     print(f"[Database] Error adding {tag_name}: {value} on {path}")
-        self.__con.commit()
+        # self.__con.commit()
         print(f"[Database] Added {path}")
 
     def remove_dead_paths(self):
@@ -155,20 +188,47 @@ class Database:
         tracks = self.get_paths('tracks','path')
         for track in tracks:
             if not os.path.exists(track):
-                cur.execute(f'DELETE FROM track_tags WHERE track_path = "{track}"')
-                cur.execute(f'DELETE FROM track_classifications WHERE track_path = "{track}"')
-                cur.execute(f'DELETE FROM tracks WHERE path = "{track}"')
-        self.__con.commit()
+                cur.execute('DELETE FROM track_tags WHERE track_path = ?', (track,))
+                cur.execute('DELETE FROM track_classifications WHERE track_path = ?', (track,))
+                cur.execute('DELETE FROM tracks WHERE path = ?', (track,))
+        # self.__con.commit()
 
     def add_classification(self,path,data):
-        print(f"[Database] Adding {path} ...")
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"File not found: {path}")
+        print(f"[Database] Adding {path} ...", flush=True)
+        
+        # Test DB accessibility
+        try:
+            print("[Database] Attempting dummy insert...", flush=True)
+            self.__con.execute("INSERT OR IGNORE INTO tracks (path) VALUES ('DUMMY_PATH')")
+            print("[Database] Dummy insert successful.", flush=True)
+        except Exception as e:
+            print(f"[Database] Dummy insert failed: {e}", flush=True)
+
+        print(f"[Database] Inserting {len(data)} classifications for {path}", flush=True)
+        print(f"[Database] Path length: {len(path)}, Bytes: {str(path.encode('utf-8', errors='replace'))[:50]}...", flush=True)
+
         cur = self.__con.cursor()
-        for key in data:
-            cur.execute('INSERT INTO track_classifications VALUES ("{}","{}","{}")'.format(key,path,data[key]))
-        self.__con.commit()
-        print(f'[Database] Added "{path}" classification to db')
+        success_count = 0
+        error_count = 0
+        print(f"[Database] Starting loop for {len(data)} items...", flush=True)
+        for i, key in enumerate(data):
+            if i == 0:
+                print(f"[Database] First insert: {key} -> {data[key]}", flush=True)
+            try:
+                print(f"[Database] BEFORE EXECUTE {i}", flush=True)
+                cur.execute('INSERT OR REPLACE INTO track_classifications VALUES (?,?,?)', (key, path, data[key]))
+                print(f"[Database] AFTER EXECUTE {i}", flush=True)
+                success_count += 1
+            except Exception as e:
+                error_count += 1
+                print(f"[Database] Error inserting classification {key} for {path}: {e}", flush=True)
+        
+        print(f"[Database] Loop finished. Committing {success_count} inserts ({error_count} errors)...", flush=True)
+        try:
+            # self.__con.commit()
+            print(f'[Database] Commit successful. Added "{path}" classification to db', flush=True)
+        except Exception as e:
+            print(f"[Database] COMMIT FAILED: {e}", flush=True)
 
     def get_paths(self, table_name, col_name) -> list[str]:
         cur = self.__con.cursor()
@@ -179,13 +239,13 @@ class Database:
 
     def get_track_classifications(self, path, percent):
         cur = self.__con.cursor()
-        cur.execute(f'SELECT classification_name,value FROM track_classifications WHERE track_path = "{path}" AND value >= {percent} AND classification_name LIKE "%---%"')
+        cur.execute('SELECT classification_name,value FROM track_classifications WHERE track_path = ? AND value >= ? AND classification_name LIKE "%---%"', (path, percent))
         res = cur.fetchall()
         return res
 
     def get_track_mood_classification(self,path):
         cur = self.__con.cursor()
-        cur.execute(f'select classification_name,value from track_classifications where track_path = "{path}" AND classification_name NOT LIKE "%---%" AND classification_name NOT LIKE "non_%"')
+        cur.execute('select classification_name,value from track_classifications where track_path = ? AND classification_name NOT LIKE "%---%" AND classification_name NOT LIKE "non_%"', (path,))
         vals = cur.fetchall()
         res = {}
         for name,val in vals:
@@ -195,13 +255,14 @@ class Database:
     def get_tracks_by_classification(self, name, value, percent):
         cur = self.__con.cursor()
         cur.row_factory = lambda _c, r: r[0]
-        cur.execute(f'SELECT DISTINCT track_path FROM track_classifications WHERE classification_name = "{name}" AND value >= {value - (value*percent)} AND value <= {value + (value*percent)}')
+        cur.execute('SELECT DISTINCT track_path FROM track_classifications WHERE classification_name = ? AND value >= ? AND value <= ?', (name, value - (value*percent), value + (value*percent)))
         res = cur.fetchall()
         return res
 
     def get_tracks_by_mood_classification(self, name, value):
         cur = self.__con.cursor()
         cur.row_factory = lambda _c, r: r[0]
-        cur.execute(f'SELECT DISTINCT track_path FROM track_classifications WHERE classification_name = "{name}" AND value {">=" if value else "<="} 0.5')
+        operator = ">=" if value else "<="
+        cur.execute(f'SELECT DISTINCT track_path FROM track_classifications WHERE classification_name = ? AND value {operator} 0.5', (name,))
         res = cur.fetchall()
         return res
