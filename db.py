@@ -10,13 +10,13 @@ from tagging import Track
 class Database:
     def __init__(self):
         self._classes = {}
+        db_exists = os.path.exists("test.db")
         self.__con = sqlite3.connect("test.db", timeout=10.0, isolation_level=None)
         self.__con.execute("PRAGMA journal_mode=WAL")
-        self.create_tables()
-        self.create_indexes()
-        self.get_classifier_classes()
-
-    # ... (skipping methods) ...
+        if not db_exists:
+            self.create_tables()
+            self.create_indexes()
+            self.get_classifier_classes()
 
     def add_classification(self,path,data):
         print(f"[Database] Adding {path} ...", flush=True)
@@ -194,41 +194,22 @@ class Database:
         # self.__con.commit()
 
     def add_classification(self,path,data):
-        print(f"[Database] Adding {path} ...", flush=True)
-        
-        # Test DB accessibility
-        try:
-            print("[Database] Attempting dummy insert...", flush=True)
-            self.__con.execute("INSERT OR IGNORE INTO tracks (path) VALUES ('DUMMY_PATH')")
-            print("[Database] Dummy insert successful.", flush=True)
-        except Exception as e:
-            print(f"[Database] Dummy insert failed: {e}", flush=True)
-
-        print(f"[Database] Inserting {len(data)} classifications for {path}", flush=True)
-        print(f"[Database] Path length: {len(path)}, Bytes: {str(path.encode('utf-8', errors='replace'))[:50]}...", flush=True)
-
         cur = self.__con.cursor()
         success_count = 0
         error_count = 0
-        print(f"[Database] Starting loop for {len(data)} items...", flush=True)
         for i, key in enumerate(data):
-            if i == 0:
-                print(f"[Database] First insert: {key} -> {data[key]}", flush=True)
             try:
-                print(f"[Database] BEFORE EXECUTE {i}", flush=True)
                 cur.execute('INSERT OR REPLACE INTO track_classifications VALUES (?,?,?)', (key, path, data[key]))
-                print(f"[Database] AFTER EXECUTE {i}", flush=True)
                 success_count += 1
             except Exception as e:
                 error_count += 1
                 print(f"[Database] Error inserting classification {key} for {path}: {e}", flush=True)
         
-        print(f"[Database] Loop finished. Committing {success_count} inserts ({error_count} errors)...", flush=True)
-        try:
-            # self.__con.commit()
-            print(f'[Database] Commit successful. Added "{path}" classification to db', flush=True)
-        except Exception as e:
-            print(f"[Database] COMMIT FAILED: {e}", flush=True)
+        # try:
+        #     self.__con.commit()
+        #     print(f'[Database] Commit successful. Added "{path}" classification to db', flush=True)
+        # except Exception as e:
+        #     print(f"[Database] COMMIT FAILED: {e}", flush=True)
 
     def get_paths(self, table_name, col_name) -> list[str]:
         cur = self.__con.cursor()

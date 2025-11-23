@@ -31,7 +31,6 @@ def db_thread(q):
                 db.add_path(path)
             elif task[0] == "sonic":
                 _type, _path, data = task # The path is an empty string here, data contains the dict
-                print(f"[Main] Adding {len(data)} tracks to db", flush=True)
                 for filepath in data:
                     for classification_type in data[filepath]:
                         db.add_classification(filepath, data[filepath][classification_type])

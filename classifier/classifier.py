@@ -85,17 +85,12 @@ class Classifier:
 
         # Use larger batch size for better utilization
         batch_size = 20
-        print(
-            f"[Classifier] Processing {len(files)} files with batch size {batch_size}"
-        )
 
         # Phase 1: Load all audio files in batches
         audio_data = {}
         for i in range(0, len(files), batch_size):
             batch_files = files[i : i + batch_size]
-            print(
-                f"[Classifier] Loading audio batch {i//batch_size + 1}/{(len(files) + batch_size - 1)//batch_size}"
-            )
+
 
             for file in batch_files:
                 print(f"[Classifier] Loading audio for {file}")
@@ -147,7 +142,6 @@ class Classifier:
             return results
 
         # Phase 2: Generate embeddings for all files
-        print(f"[Classifier] Generating embeddings for {len(audio_data)} files")
         discogs_embeddings = {}
 
         for file, audio in audio_data.items():
